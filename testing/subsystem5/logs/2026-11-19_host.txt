@@ -1,0 +1,8 @@
+4ae863a
+PASS echo pairing, expiry, scan packing, off-centre targeting and profile bounds
+PASS obstacle avoidance, both sides, blocked return retry, recovery, and cancellation
+..........................
+----------------------------------------------------------------------
+Ran 26 tests in 2.052s
+
+OK
