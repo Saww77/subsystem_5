@@ -1,6 +1,7 @@
 /* Host exercise of the production dispatcher with a simulated motion owner. */
 #include <assert.h>
 #include <stdio.h>
+#include "../../app_program/subsystem2/motion_transport.h"
 #include "../../app_program/vehicle_controller/vehicle_controller.c"
 
 static uint32_t clock_ms;
@@ -11,6 +12,7 @@ static bool motor_busy;
 static S2_STATUS motor;
 static S2_REPLY motor_reply;
 static uint16_t queued_command;
+static bool distance_reached, maneuver_finished;
 
 ID tk_cre_mtx(const T_CMTX *config) { assert(config->mtxatr == TA_INHERIT); return 1; }
 ER tk_del_mtx(ID id) { assert(id == 1); return E_OK; }
@@ -37,9 +39,9 @@ unsigned s1_connection_status(void) { return connection; }
 ER s1_publish_reset_result(BOOL ok) { ++reset_count; reset_result = ok; return E_OK; }
 uint32_t s2_core_timing_fault_gap_us(void) { return 0; }
 bool s2_core_distance_reached(unsigned mm, const S2_STATUS *status)
-{ (void)mm; (void)status; return false; }
+{ (void)mm; (void)status; return distance_reached; }
 bool s2_core_maneuver_finished(unsigned arg, const S2_STATUS *status)
-{ (void)arg; (void)status; return false; }
+{ (void)arg; (void)status; return maneuver_finished; }
 bool motion_get_feedback(S2_STATUS *status, S2_REPLY *reply, bool *busy)
 {
     *status = motor;
@@ -66,10 +68,19 @@ bool motion_set_wheel_rpm_tracked(unsigned left, unsigned right, uint16_t *comma
 }
 
 bool motion_clear_faults(void) { ++clear_count; return true; }
+static bool queue_maneuver(unsigned arg, uint16_t *command)
+{
+    assert(!queued_command);
+    ++command_count;
+    *command = queued_command = (uint16_t)(S2_MANEUVER | (arg << 4));
+    motor_busy = true;
+    maneuver_finished = distance_reached = false;
+    return true;
+}
 bool motion_maneuver(unsigned mm, bool right, uint16_t *command)
-{ (void)mm; (void)right; (void)command; assert(0); return false; }
+{ assert(mm && !right); return queue_maneuver(mm, command); }
 bool motion_maneuver_turn_45(bool right, uint16_t *command)
-{ (void)right; (void)command; assert(0); return false; }
+{ return queue_maneuver(S2_MANEUVER_TURN_45 | (unsigned)right, command); }
 bool motion_maneuver_reverse(unsigned mm, uint16_t *command)
 { (void)mm; (void)command; assert(0); return false; }
 void subsystem5_request_scan(void) { ++scan_count; }
@@ -99,6 +110,89 @@ static TMO work(void)
     assert(event_flags == VC_WAKE);
     event_flags = 0;
     return vehicle_service_once();
+}
+
+static void detour_tick(unsigned elapsed, bool on_line)
+{
+    clock_ms += elapsed;
+    vehicle_submit_line(on_line ? 800 : 0, 0, 0, 30, 30, FALSE, 0);
+    vehicle_submit_obstacle_range(1000);
+    work();
+}
+
+static void finish_maneuver(S5_PHASE next)
+{
+    motor_acknowledge(S2_REPLY_OK);
+    detour_tick(20, false);
+    assert(motor_busy);
+    motor_stopped();
+    maneuver_finished = true;
+    detour_tick(20, false);
+    assert(model.avoidance.phase == next && !drive.command);
+}
+
+static void test_dispatch_detour(bool left)
+{
+    /* Start with the stopped, reset controller left by the earlier replay. */
+    detour_tick(20, false);
+    assert(vehicle_request_start());
+    work();
+    motor_acknowledge(S2_REPLY_OK);
+    detour_tick(20, false);
+    vehicle_submit_obstacle_range(220);
+    work();
+    motor_stopped();
+    work();
+    uint32_t request;
+    assert(vehicle_obstacle_scan_request(&request));
+    S5_PROFILE scan = {.nearest_mm = 220, .front_mm = 220, .width_mm = S5_UNKNOWN_WIDTH,
+        .left_path_mm = left ? 900 : 600, .right_path_mm = left ? 600 : 900};
+    clock_ms += 1200;
+    vehicle_submit_line(0, 0, 0, 30, 30, FALSE, 0);
+    vehicle_submit_obstacle_range(220);
+    vehicle_finish_obstacle_scan(&scan, request);
+    work();
+    assert(model.avoidance.phase == S5_TURN_OUT);
+    assert(model.avoidance.side == (left ? S5_LEFT : S5_RIGHT));
+    unsigned outward = S2_MANEUVER_TURN_45 | (unsigned)!left;
+    unsigned inward = S2_MANEUVER_TURN_45 | (unsigned)left;
+    detour_tick(260, false);
+    assert((queued_command >> 4) == outward);
+    finish_maneuver(S5_SHIFT_OUT);
+    detour_tick(260, false);
+    assert((queued_command >> 4) == 262);
+    finish_maneuver(S5_ALIGN_OUTSIDE);
+    detour_tick(260, false);
+    assert((queued_command >> 4) == inward);
+    finish_maneuver(S5_PASS);
+    detour_tick(260, false);
+    assert((queued_command >> 4) == 165);
+    finish_maneuver(S5_TURN_IN);
+    detour_tick(260, false);
+    assert((queued_command >> 4) == inward);
+    finish_maneuver(S5_FIND_LINE);
+    detour_tick(260, false);
+    assert((queued_command >> 4) == 319);
+    motor_acknowledge(S2_REPLY_OK);
+    distance_reached = true;
+    detour_tick(20, true);
+    detour_tick(20, true);
+    assert(model.avoidance.phase == S5_CENTER_LINE && !drive.command);
+    motor_stopped();
+    detour_tick(260, false);
+    assert((queued_command >> 4) == 60);
+    finish_maneuver(S5_ALIGN_LINE);
+    detour_tick(260, false);
+    assert((queued_command >> 4) == outward);
+    finish_maneuver(S5_CHECK_LINE);
+    detour_tick(260, false);
+    assert(model.avoidance.phase == S5_COMPLETE && vehicle_state() == VC_FOLLOW_LINE);
+    detour_tick(20, false);
+    assert(drive.velocity && queued_command);
+    vehicle_request_stop();
+    work();
+    motor_stopped();
+    work();
 }
 
 int main(void)
@@ -203,7 +297,7 @@ int main(void)
     assert(vehicle_obstacle_scan_request(&request));
 
     S5_PROFILE unresolved = {.nearest_mm = 208, .front_mm = 203, .width_mm = S5_UNKNOWN_WIDTH,
-                             .angle_offset_deg = 60, .left_path_mm = S5_OPEN_RANGE,
+                             .angle_offset_deg = 60, .left_path_mm = S5_UNKNOWN_RANGE,
                              .right_path_mm = S5_UNKNOWN_RANGE};
     uint32_t first_request = request;
     clock_ms += 20;
@@ -217,7 +311,7 @@ int main(void)
     work();
     assert(vehicle_get_snapshot(&snapshot) && snapshot.state == VC_IDLE && snapshot.obstacle_profile);
     assert(snapshot.near_mm == 208 && snapshot.obstacle_forward_mm == 606 &&
-           snapshot.width_mm == S5_UNKNOWN_WIDTH && snapshot.avoidance_failure == S5_FAIL_WIDTH &&
+           snapshot.width_mm == S5_UNKNOWN_WIDTH && snapshot.avoidance_failure == S5_FAIL_ECHO &&
            snapshot.avoidance_failed_phase == S5_PROFILE_PATH);
     motor_stopped();
     work();
@@ -227,5 +321,7 @@ int main(void)
     work();
     assert(vehicle_get_snapshot(&snapshot) && !snapshot.obstacle_profile &&
            snapshot.avoidance_failure == S5_FAIL_NONE && reset_count == 4 && reset_result);
-    puts("PASS controller events, stationary rescan, preserved failure and profile, and stopped reset");
+    test_dispatch_detour(true);
+    test_dispatch_detour(false);
+    puts("PASS controller events, both clearance detours, stationary rescan, preserved failure and profile, and stopped reset");
 }

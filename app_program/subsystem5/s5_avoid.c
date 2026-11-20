@@ -1,6 +1,5 @@
 #include "s5_avoid.h"
 
-#define BODY_MARGIN_MM 135u
 #define FRONT_MARGIN_MM 15u
 #define MAX_OFFSET_MM (S5_CLEAR_MM - FRONT_MARGIN_MM)
 #define FOLLOW_AHEAD_MARGIN_MM 130u
@@ -13,6 +12,8 @@
 _Static_assert(S5_CLEAR_MM + FOLLOW_AHEAD_MARGIN_MM <= S5_MAX_PASS_MM,
                "The maximum profiled distance must fit the bypass budget");
 _Static_assert(S5_MAX_PASS_MM < 512u, "Bypass distances must fit the 9-bit fields");
+_Static_assert(S5_BYPASS_OFFSET_MM > 0 && S5_BYPASS_OFFSET_MM <= MAX_OFFSET_MM,
+               "The clearance departure offset must fit the maneuver envelope");
 _Static_assert(MAX_OFFSET_MM <= 255u, "Lateral offset must fit in 8 bits");
 _Static_assert((MAX_OFFSET_MM + S5_SEARCH_MARGIN_MM) * 1415u <= 511000u,
                "Diagonal search must fit in 9 bits");
@@ -75,33 +76,23 @@ S5_SIDE s5_plan_bypass(const S5_PROFILE *profile, unsigned *offset_mm, unsigned 
     if (!s5_range_measured(profile->nearest_mm) || profile->nearest_mm > S5_CLEAR_MM)
         return S5_NO_SIDE;
 
-    *failure = S5_FAIL_WIDTH;
-    if (!profile->left_edge_valid || !profile->right_edge_valid ||
-        !profile->width_mm || profile->width_mm == S5_UNKNOWN_WIDTH) {
-        if (profile->left_clipped && profile->right_clipped) *failure = S5_FAIL_BOTH_LIMITS;
-        else if (profile->left_clipped) *failure = S5_FAIL_LEFT_LIMIT;
-        else if (profile->right_clipped) *failure = S5_FAIL_RIGHT_LIMIT;
-        return S5_NO_SIDE;
-    }
-
-    unsigned left_offset = BODY_MARGIN_MM + (profile->left_edge_mm < 0 ? -profile->left_edge_mm : 0);
-    unsigned right_offset = BODY_MARGIN_MM + (profile->right_edge_mm > 0 ? profile->right_edge_mm : 0);
-    bool left = departure_room(left_offset, profile->front_mm);
-    bool right = departure_room(right_offset, profile->front_mm);
+    /* Width and edge fitting are diagnostic only. Choose between the actual
+     * departure headings using repeat-confirmed range, then recheck forward
+     * range at each stopped phase. The return corridor is checked separately. */
     *failure = S5_FAIL_ROOM;
-    if (!left && !right) return S5_NO_SIDE;
+    if (!departure_room(S5_BYPASS_OFFSET_MM, profile->front_mm)) return S5_NO_SIDE;
 
     unsigned left_path = profile->left_path_mm, right_path = profile->right_path_mm;
-    *failure = (left && !s5_range_available(left_path)) || (right && !s5_range_available(right_path)) ?
+    *failure = !s5_range_available(left_path) || !s5_range_available(right_path) ?
                S5_FAIL_ECHO : S5_FAIL_SIDE;
-    left = left && s5_range_available(left_path) && left_path >= s5_diagonal_mm(left_offset) + S5_MANEUVER_STOP_MM;
-    right = right && s5_range_available(right_path) && right_path >= s5_diagonal_mm(right_offset) + S5_MANEUVER_STOP_MM;
+    unsigned needed = s5_diagonal_mm(S5_BYPASS_OFFSET_MM) + S5_MANEUVER_STOP_MM;
+    bool left = s5_range_available(left_path) && left_path >= needed;
+    bool right = s5_range_available(right_path) && right_path >= needed;
     if (!left && !right) return S5_NO_SIDE;
 
     *failure = S5_FAIL_NONE;
-    bool use_left = left && (!right || left_path > right_path ||
-                            (left_path == right_path && left_offset <= right_offset));
-    *offset_mm = use_left ? left_offset : right_offset;
+    bool use_left = left && (!right || left_path >= right_path);
+    *offset_mm = S5_BYPASS_OFFSET_MM;
     /* The departure diagonal already advances by one lateral offset. */
     unsigned forward_goal = profile->nearest_mm + FOLLOW_AHEAD_MARGIN_MM;
     *pass_mm = forward_goal > *offset_mm + MIN_PASS_MM ? forward_goal - *offset_mm : MIN_PASS_MM;
@@ -148,12 +139,8 @@ S5_AVOID_OUTPUT s5_avoid_step(S5_AVOID *state, const S5_AVOID_INPUT *in)
             go(state, S5_PROFILE_PATH, in->now);
             return (S5_AVOID_OUTPUT){.action = S5_RESCAN};
         }
-        bool clipped = reason >= S5_FAIL_LEFT_LIMIT;
-        /* Change vantage point only if the tracked segment permits retracing and
-           a clipped target should still be in profiling range after the move. */
-        bool retrace_in_range = range_fresh && in->range_mm <= S5_CLEAR_MM - S5_REVERSE_MM;
-        if (state->reverse_available && in->line_centered && !in->line_junction &&
-            (!clipped || retrace_in_range)) {
+        /* Change vantage point only along an authorized, previously tracked segment. */
+        if (state->reverse_available && in->line_centered && !in->line_junction) {
             state->reverse_available = false;
             state->reverse_long = state->reverse_long && reason == S5_FAIL_ROOM &&
                                   profile.front_mm <= S5_CLEAR_MM - S5_LONG_REVERSE_MM &&

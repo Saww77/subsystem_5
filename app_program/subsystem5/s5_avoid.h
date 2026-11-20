@@ -10,6 +10,9 @@
 #define S5_MANEUVER_STOP_MM 150u
 #define S5_MAX_PASS_MM 500u
 #define S5_APPROACH_RPM 20u
+/* Fixed lateral departure, independent of an unreliable acoustic width fit.
+ * Validate this offset and the motor turn calibration on the actual chassis. */
+#define S5_BYPASS_OFFSET_MM 185u
 #define S5_BYPASS_TURN_DEG 45u
 #define S5_TURN_CLEARANCE_MM 100u
 #define S5_REVERSE_MM 30u
