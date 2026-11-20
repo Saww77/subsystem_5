@@ -32,3 +32,15 @@ The protocol fixture is software, not the physical Pico. Actual car Wi-Fi, broke
 The additive controller diagnostic packet and specific START blocker/IR display also passed unit and real-broker/browser tests. START disables for a fresh blocker while STOP remains available; clearing the blocker permits retry. The Pico startup/junction fix was validated in line-controller host tests and both firmware builds. Physical motion remains unverified.
 
 Timing/reset update: version2 timing-gap/limit decoding and stopped-only RESET availability passed unit tests. The browser integration sends exact binary02 through the local broker, receives ACK04 and verifies the fixture remains IDLE without any automatic START. Physical car timing remains unverified.
+
+## Compatibility and stall diagnosis — 20 November 2026
+
+Tested revision: `1cdf0dd`. The reported screenshots contain an older dashboard layout (WIDTH still visible) and invalid-length obstacle telemetry. The current production C publisher sends seven bytes and the current decoder accepts that packet. The screenshots also report a separate wheel-stall motor fault. Hardware power, physical movement and encoder signals have not been observed.
+
+- 32 dashboard unit/HTTP tests passed, including received/expected packet lengths, a persistent visible notice, suppression of duplicate error events, clearing on a valid packet, and motor-stall guidance.
+- The actual C obstacle publisher and packer were compiled and run; their seven-byte output decoded successfully with the Python decoder.
+- The production motor core passed its host regression with undefined-behavior/bounds sanitizers: encoder feedback on both wheels, missing feedback on either wheel, latched stop, no restart while faulted, explicit clear, and velocity-mode bounded-progress semantics.
+- All 13 browser/MQTT checkpoints passed, with additional assertions for the Clearance v3 marker, visible mismatch banner, recovery on a valid packet, and mobile layout. The simulated heartbeat was refreshed at scenario boundaries to prevent test duration from accidentally expiring it before the deliberate stale-heartbeat scenario.
+- No firmware control code or safety limits were changed in this diagnostic revision. Physical car testing remains blocked on the observation of whether the wheels turn and how the motors are powered.
+
+[Host output](../testing/subsystem5/logs/2026-11-20_compatibility_host.txt) · [Browser output](../testing/subsystem5/logs/2026-11-20_compatibility_browser.txt)
