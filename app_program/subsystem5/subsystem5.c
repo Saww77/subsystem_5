@@ -153,7 +153,7 @@ static void scan_task(INT stacd, void *exinf)
     (void)stacd;
     (void)exinf;
     if (!setup()) return;
-    tm_printf((UB*)"[S5] GP16 trigger, GP17 echo. Entry=%u mm, clear=%u mm\n",
+    tm_printf((UB*)"[S5] adaptive 45/90 clearance bypass. GP16 trigger, GP17 echo. Entry=%u mm, clear=%u mm\n",
               S5_SCAN_STOP_MM, S5_CLEAR_MM);
 
     for (;;) {
@@ -230,16 +230,16 @@ static void bench_print_plan(const S5_PROFILE *profile)
 
     bench_print_clearance("left 45 deg", profile->left_path_mm);
     bench_print_clearance("right 45 deg", profile->right_path_mm);
-    unsigned offset, pass;
+    unsigned offset, pass, turn;
     S5_FAILURE reason;
-    S5_SIDE side = s5_plan_bypass(profile, &offset, &pass, &reason);
+    S5_SIDE side = s5_plan_bypass(profile, &offset, &pass, &turn, &reason);
     if (side == S5_NO_SIDE) {
         tm_printf((UB*)"[S5 BENCH] plan=STOP turn=0 deg reason=%u\n", (unsigned)reason);
         return;
     }
-    tm_printf((UB*)"[S5 BENCH] plan=%s turn=%u deg diagonal=%u mm lateral_offset=%u mm pass=%u mm\n",
-              side == S5_LEFT ? "LEFT" : "RIGHT", S5_BYPASS_TURN_DEG,
-              s5_diagonal_mm(offset), offset, pass);
+    tm_printf((UB*)"[S5 BENCH] plan=%s turn=%u deg departure=%u mm lateral_offset=%u mm pass=%u mm\n",
+              side == S5_LEFT ? "LEFT" : "RIGHT", turn,
+              turn == 90u ? offset : s5_diagonal_mm(offset), offset, pass);
 }
 
 EXPORT void subsystem5_bench(void)

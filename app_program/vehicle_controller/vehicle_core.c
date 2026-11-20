@@ -20,9 +20,11 @@ VC_START_BLOCK vc_core_start_block(const VC_MODEL *model, const VC_INPUT *in)
     if (!in->line_valid) return VC_START_NO_LINE;
     if (in->line_age_ms > VC_LINE_MAX_AGE_MS) return VC_START_OLD_LINE;
     if (in->line_stop) return VC_START_LINE_STOP;
-    if (vc_core_detouring(model) || in->obstacle_blocked ||
-        (model->avoidance.phase == S5_FAILED &&
-         (!in->avoidance.line_hit || in->avoidance.line_junction))) return VC_START_OBSTACLE;
+    /* A confirmed nearby object is a reason to scan while stopped, not to
+     * reject every new mission. An unknown echo still blocks START, and a
+     * failed detour requires explicit Reset before any new plan. */
+    if (vc_core_detouring(model) || model->avoidance.phase == S5_FAILED ||
+        (in->obstacle_blocked && !in->obstacle_detected)) return VC_START_OBSTACLE;
     return VC_START_READY;
 }
 

@@ -13,6 +13,7 @@ static S2_STATUS motor;
 static S2_REPLY motor_reply;
 static uint16_t queued_command;
 static bool distance_reached, maneuver_finished;
+static unsigned reentry_threshold;
 
 ID tk_cre_mtx(const T_CMTX *config) { assert(config->mtxatr == TA_INHERIT); return 1; }
 ER tk_del_mtx(ID id) { assert(id == 1); return E_OK; }
@@ -39,7 +40,7 @@ unsigned s1_connection_status(void) { return connection; }
 ER s1_publish_reset_result(BOOL ok) { ++reset_count; reset_result = ok; return E_OK; }
 uint32_t s2_core_timing_fault_gap_us(void) { return 0; }
 bool s2_core_distance_reached(unsigned mm, const S2_STATUS *status)
-{ (void)mm; (void)status; return distance_reached; }
+{ reentry_threshold = mm; (void)status; return distance_reached; }
 bool s2_core_maneuver_finished(unsigned arg, const S2_STATUS *status)
 { (void)arg; (void)status; return maneuver_finished; }
 bool motion_get_feedback(S2_STATUS *status, S2_REPLY *reply, bool *busy)
@@ -78,7 +79,7 @@ static bool queue_maneuver(unsigned arg, uint16_t *command)
     return true;
 }
 bool motion_maneuver(unsigned mm, bool right, uint16_t *command)
-{ assert(mm && !right); return queue_maneuver(mm, command); }
+{ return queue_maneuver(mm ? mm : S2_MANEUVER_TURN | (unsigned)right, command); }
 bool motion_maneuver_turn_45(bool right, uint16_t *command)
 { return queue_maneuver(S2_MANEUVER_TURN_45 | (unsigned)right, command); }
 bool motion_maneuver_reverse(unsigned mm, uint16_t *command)
@@ -122,6 +123,12 @@ static void detour_tick(unsigned elapsed, bool on_line)
 
 static void finish_maneuver(S5_PHASE next)
 {
+    unsigned submitted = command_count;
+    motor_acknowledge(S2_REPLY_SETTLING);
+    detour_tick(20, false);
+    assert(vc_core_detouring(&model) && command_count == submitted);
+    detour_tick(200, false);
+    assert(queued_command && command_count == submitted + 1);
     motor_acknowledge(S2_REPLY_OK);
     detour_tick(20, false);
     assert(motor_busy);
@@ -131,7 +138,7 @@ static void finish_maneuver(S5_PHASE next)
     assert(model.avoidance.phase == next && !drive.command);
 }
 
-static void test_dispatch_detour(bool left)
+static void test_dispatch_detour(bool left, bool square, bool cancel)
 {
     /* Start with the stopped, reset controller left by the earlier replay. */
     detour_tick(20, false);
@@ -147,6 +154,7 @@ static void test_dispatch_detour(bool left)
     assert(vehicle_obstacle_scan_request(&request));
     S5_PROFILE scan = {.nearest_mm = 220, .front_mm = 220, .width_mm = S5_UNKNOWN_WIDTH,
         .left_path_mm = left ? 900 : 600, .right_path_mm = left ? 600 : 900};
+    if (square) scan.front_mm = scan.nearest_mm = 190;
     clock_ms += 1200;
     vehicle_submit_line(0, 0, 0, 30, 30, FALSE, 0);
     vehicle_submit_obstacle_range(220);
@@ -154,28 +162,42 @@ static void test_dispatch_detour(bool left)
     work();
     assert(model.avoidance.phase == S5_TURN_OUT);
     assert(model.avoidance.side == (left ? S5_LEFT : S5_RIGHT));
-    unsigned outward = S2_MANEUVER_TURN_45 | (unsigned)!left;
-    unsigned inward = S2_MANEUVER_TURN_45 | (unsigned)left;
+    unsigned turn_command = square ? S2_MANEUVER_TURN : S2_MANEUVER_TURN_45;
+    unsigned outward = turn_command | (unsigned)!left;
+    unsigned inward = turn_command | (unsigned)left;
     detour_tick(260, false);
     assert((queued_command >> 4) == outward);
+    if (cancel) {
+        motor_acknowledge(S2_REPLY_SETTLING);
+        detour_tick(20, false);
+        unsigned issued = command_count;
+        vehicle_request_stop();
+        work();
+        motor_stopped();
+        detour_tick(300, false);
+        assert(vehicle_state() == VC_IDLE && !queued_command && command_count == issued);
+        assert(model.avoidance.failure == S5_FAIL_STOP);
+        return;
+    }
     finish_maneuver(S5_SHIFT_OUT);
     detour_tick(260, false);
-    assert((queued_command >> 4) == 262);
+    assert((queued_command >> 4) == (square ? 185u : 262u));
     finish_maneuver(S5_ALIGN_OUTSIDE);
     detour_tick(260, false);
     assert((queued_command >> 4) == inward);
     finish_maneuver(S5_PASS);
     detour_tick(260, false);
-    assert((queued_command >> 4) == 165);
+    assert((queued_command >> 4) == (square ? 320u : 165u));
     finish_maneuver(S5_TURN_IN);
     detour_tick(260, false);
     assert((queued_command >> 4) == inward);
     finish_maneuver(S5_FIND_LINE);
     detour_tick(260, false);
-    assert((queued_command >> 4) == 319);
+    assert((queued_command >> 4) == (square ? 225u : 319u));
     motor_acknowledge(S2_REPLY_OK);
     distance_reached = true;
     detour_tick(20, true);
+    assert(reentry_threshold == (square ? 85u : 146u));
     detour_tick(20, true);
     assert(model.avoidance.phase == S5_CENTER_LINE && !drive.command);
     motor_stopped();
@@ -193,6 +215,28 @@ static void test_dispatch_detour(bool left)
     work();
     motor_stopped();
     work();
+}
+
+static void test_start_near_object(void)
+{
+    detour_tick(20, false);
+    vehicle_submit_obstacle_range(190);
+    unsigned issued = command_count;
+    assert(vehicle_request_start());
+    work();
+    uint32_t request;
+    assert(vehicle_obstacle_scan_request(&request));
+    assert(model.state == VC_AVOIDING && command_count == issued && !queued_command);
+    vehicle_request_stop();
+    work();
+    motor_stopped();
+    work();
+    assert(!vehicle_request_start()); /* Failed detour cannot restart itself. */
+    assert(vehicle_request_reset());
+    work();
+    motor_stopped();
+    work();
+    assert(model.avoidance.phase == S5_OFF);
 }
 
 int main(void)
@@ -321,7 +365,11 @@ int main(void)
     work();
     assert(vehicle_get_snapshot(&snapshot) && !snapshot.obstacle_profile &&
            snapshot.avoidance_failure == S5_FAIL_NONE && reset_count == 4 && reset_result);
-    test_dispatch_detour(true);
-    test_dispatch_detour(false);
+    test_start_near_object();
+    test_dispatch_detour(true, false, false);
+    test_dispatch_detour(false, false, false);
+    test_dispatch_detour(true, true, false);
+    test_dispatch_detour(false, true, false);
+    test_dispatch_detour(true, true, true);
     puts("PASS controller events, both clearance detours, stationary rescan, preserved failure and profile, and stopped reset");
 }

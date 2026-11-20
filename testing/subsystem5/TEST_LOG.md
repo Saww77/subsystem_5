@@ -4,7 +4,7 @@
 
 Production driving no longer estimates obstacle width. The earlier flat-face/corner fitter rejected real scans when wide-beam echoes did not agree with its geometric assumptions. That missing estimate previously vetoed the detour. The scanner now measures the actual two 45° departure headings and a fresh forward range, using up to five pings per bearing and two consecutive agreeing results. A timeout is unavailable, not open space.
 
-The planner chooses the clearer usable side and uses a 185 mm lateral target (262 mm diagonal at 45°). It requires 412 mm departure clearance, including the 150 mm stopping margin, and at least 200 mm forward room. These are bounded maneuvers, not a measurement of object width. Wide obstacles, narrow gaps and chassis/servo/encoder calibration still require physical track validation. If the inward return corridor is blocked, the car advances alongside the obstacle in 60 mm steps, up to a total 500 mm pass budget. Two fresh IR samples confirming a crossing near the predicted line trigger axle centring and a 45° alignment turn; fresh centred-line and forward-range evidence are required for handoff.
+The planner chooses a bounded departure toward a confirmed side, with a 185 mm lateral target. It uses 45° when there is at least 200 mm forward room and a 412 mm departure path (262 mm diagonal plus 150 mm margin). When that geometry does not fit but a stationary pivot has at least 100 mm clearance, it selects 90°. After the turn, a new centred forward reading on the actual heading must confirm at least 335 mm before the 185 mm lateral drive. The 45° servo measurement never authorizes translation at 90°. If the live echo after a planned 45° turn blocks departure, the controller may add the remaining 45° and switch to square-route distances. These are bounded maneuvers, not a measurement of object width. Wide obstacles, narrow gaps and chassis/servo/encoder calibration still require physical track validation. If the inward return corridor is blocked, the car advances alongside the obstacle in 60 mm steps, up to a total 500 mm pass budget. Two fresh IR samples confirming a crossing near the predicted line trigger axle centring and an alignment turn matching the departure angle; fresh centred-line and forward-range evidence are required for handoff.
 
 The dashboard shows clearance, chosen side and recovery phase. It hides width. The MQTT packet retains its unused width sentinel (2047) for compatibility. Historical width fitter tests and calibration utilities remain for analysis; they are not used by the production or bench scanner.
 
@@ -16,10 +16,18 @@ Place a flat target 200–220 mm ahead. After two near echoes, the same scanner 
 
 ## Track check (physical validation pending)
 
-1. Verify motor direction and actual encoder-bounded 45° turns with wheels raised. Confirm the 60 mm sensor-to-axle setting (`S3_ADVANCE_MM`) and servo bearings on the mounted car.
+1. Verify motor direction and actual encoder-bounded 45° and 90° turns with wheels raised. Confirm the 60 mm sensor-to-axle setting (`S3_ADVANCE_MM`) and servo bearings on the mounted car.
 2. On a clear test track, start line following and place an obstacle ahead. Confirm slowing, stopping, then a clearance scan while the wheels are stopped.
-3. Leave sufficient room on the left and verify departure, passing, inward search, axle centring, realignment and resumed line following. Repeat on the right and with a deeper obstacle that requires extra passing steps.
+3. Leave sufficient room on the left and verify departure, passing, inward search, axle centring, realignment and resumed line following. Repeat on the right, for both 45° and 90° departures, and with a deeper obstacle that requires extra passing steps.
 4. Block both departure paths and verify STOP. Also check echo loss, operator STOP and a missing return line. Save the USB log and actual stop/rejoin locations. No host or build check substitutes for these measurements.
+
+## Power-bank testing and restart
+
+The commands panel now distinguishes an active detour from a failed one. An active detour shows its stage and keeps STOP available. A failure shows its recorded cause and phase in the main command description and any rejected START acknowledgment; USB logs are optional.
+
+A temporary motor `SETTLING` rejection leaves the vehicle stopped, waits out the 200 ms settle guard, then re-evaluates the planner before retrying. STOP and fresh sensor checks still apply, and the phase timeout bounds repeated rejections. Other command rejections remain failures.
+
+After a failed detour, Reset is required. Once Reset completes, a confirmed obstacle ahead can be handled by pressing START: the controller scans while stopped before issuing wheel motion. Unknown echoes, motor faults, stale line samples and link loss still block movement. Firmware startup prints `adaptive 45/90 clearance bypass` on USB when available; build and flash from the updated branch and restart the Python dashboard so both halves match.
 
 ## Host regressions
 

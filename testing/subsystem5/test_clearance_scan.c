@@ -57,9 +57,9 @@ static void test_scan_to_plan(void)
     assert(scan.nearest_mm == 218 && scan.front_mm == 218);
     assert(published == 1 && published_range == 218);
     assert(scan.width_mm == S5_UNKNOWN_WIDTH && !scan.left_edge_valid && !scan.right_edge_valid);
-    unsigned offset, pass;
+    unsigned offset, pass, turn;
     S5_FAILURE reason;
-    assert(s5_plan_bypass(&scan, &offset, &pass, &reason) == S5_LEFT);
+    assert(s5_plan_bypass(&scan, &offset, &pass, &turn, &reason) == S5_LEFT);
     assert(offset == S5_BYPASS_OFFSET_MM && reason == S5_FAIL_NONE);
     assert(clock_ms < 3000);
 }
@@ -73,9 +73,9 @@ static void test_missing_echo_and_open_side(void)
     assert(scan_obstacle(&scan, TRUE, NULL)); /* Same scanner in motor-off bench. */
     assert(scan.left_path_mm == S5_UNKNOWN_RANGE && scan.right_path_mm == S5_OPEN_RANGE);
     assert(!published && servo_angle == S5_CENTRE_ANGLE);
-    unsigned offset, pass;
+    unsigned offset, pass, turn;
     S5_FAILURE reason;
-    assert(s5_plan_bypass(&scan, &offset, &pass, &reason) == S5_RIGHT);
+    assert(s5_plan_bypass(&scan, &offset, &pass, &turn, &reason) == S5_RIGHT);
 }
 
 static void test_no_echo_is_bounded(void)
@@ -86,9 +86,9 @@ static void test_no_echo_is_bounded(void)
     S5_PROFILE scan;
     assert(scan_obstacle(&scan, FALSE, NULL));
     assert(ping_count == 15 && clock_ms < 3000);
-    unsigned offset, pass;
+    unsigned offset, pass, turn;
     S5_FAILURE reason;
-    assert(s5_plan_bypass(&scan, &offset, &pass, &reason) == S5_NO_SIDE);
+    assert(s5_plan_bypass(&scan, &offset, &pass, &turn, &reason) == S5_NO_SIDE);
     assert(reason == S5_FAIL_TARGET);
 }
 

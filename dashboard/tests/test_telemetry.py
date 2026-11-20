@@ -184,6 +184,36 @@ class TelemetryTests(unittest.TestCase):
         self.assertIn('departure path', detour['failure'])
         self.assertEqual(sum(e['kind'] == 'vehicle' for e in state['events']), 1)
 
+    def test_active_detour_is_reported_as_progress(self):
+        packet = bytearray(31)
+        packet[:5] = bytes((2, 3, 6, 8, 1 | 2 | 64))
+        self.send('controller', packet)
+        self.send('avoidance', b'\x12')
+        data = self.d.snapshot()['telemetry']['controller']['data']
+        self.assertTrue(data['detour_active'])
+        self.assertEqual(data['start_block_label'], 'Automatic obstacle avoidance')
+        self.assertIn('Turning outward', data['start_hint'])
+        self.assertNotIn('Move nearby objects away', data['start_hint'])
+
+    def test_rejected_start_reports_actual_detour_phase(self):
+        packet = bytearray(31)
+        packet[:5] = bytes((2, 5, 6, 8, 1 | 2 | 64))
+        packet[24] = 8
+        self.send('controller', packet)
+        self.send('avoidance', bytes((12, 0x14)) + (190).to_bytes(2, 'little'))
+        data = self.d.snapshot()['telemetry']['controller']['data']
+        self.assertEqual(data['last_reject_label'], 'Detour stopped')
+        self.assertIn('Too little room', data['detour_failure'])
+        self.assertIn('during Checking side clearance', data['last_reject_hint'])
+        self.assertNotIn('Move nearby objects away', data['last_reject_hint'])
+        self.assertEqual(self.d.telemetry['controller']['data']['last_reject_label'], 'Obstacle interlock active')
+        # An expired failure must not explain a fresh unrelated rejection.
+        self.now += 3
+        self.send('controller', packet)
+        data = self.d.snapshot()['telemetry']['controller']['data']
+        self.assertEqual(data['last_reject_label'], 'Obstacle interlock active')
+        self.assertNotIn('detour_failure', data)
+
     def test_subscribes_every_topic(self):
         result=[]
         client=SimpleNamespace(subscribe=lambda topics:(result.extend(topics) or (0,1)))

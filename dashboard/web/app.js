@@ -41,8 +41,9 @@ function draw(data) {
   } else if (!data.monitor_ready) {
     description = "Waiting for the dashboard’s MQTT subscriptions.";
   } else if (data.telemetry?.controller?.fresh && data.telemetry.controller.data.start_block) {
-    title = "START blocked by controller";
-    description = data.telemetry.controller.data.start_block_label;
+    const controller = data.telemetry.controller.data;
+    title = controller.detour_active ? "Obstacle avoidance in progress" : "START blocked by controller";
+    description = controller.detour_active ? controller.start_hint : controller.detour_failure || controller.start_block_label;
   } else if (data.start_allowed) {
     title = "Pico ready for commands";
     description = "The live heartbeat confirms Wi-Fi, MQTT and the command subscription.";

@@ -219,14 +219,27 @@ class Dashboard:
                                "sensor power, common ground, GP16 trigger and the 3.3 V echo on GP17.",
                 )
             avoidance = telemetry["avoidance"]
-            if (obstacle_interlock and not echo_fault and avoidance["fresh"] and
+            if (obstacle_interlock and avoidance["fresh"] and
                     avoidance["data"]["phase"] == AVOIDANCE_FAILED):
                 failure = avoidance["data"].get("failure")
+                phase = avoidance["data"].get("failed_phase")
+                detail = (failure or "Detour could not finish") + (" during " + phase if phase else "")
+                hint = detail + ". Place the car back on the line, press Reset, and retry when the route is clear."
                 current["data"] = dict(
                     current["data"],
                     start_block_label="Detour stopped",
-                    start_hint=(failure + ". " if failure else "") +
-                               "Place the car back on the line, press Reset, and confirm the path is clear before pressing START.",
+                    start_hint=hint, detour_failure=detail,
+                )
+                if current["data"]["last_start_reject"] == START_BLOCK_OBSTACLE:
+                    current["data"] = dict(
+                        current["data"], last_reject_label="Detour stopped", last_reject_hint=hint,
+                    )
+            if (obstacle_interlock and current["data"]["state"] in ("AVOIDING", "RECOVER_LINE") and
+                    not current["data"].get("detour_failure")):
+                stage = avoidance["data"]["phase_label"] if avoidance["fresh"] else "Waiting for detour measurements"
+                current["data"] = dict(
+                    current["data"], detour_active=True,
+                    start_block_label="Automatic obstacle avoidance", start_hint=stage + ". STOP remains available.",
                 )
             reset_block = "Waiting for live controller diagnostics."
             if current["fresh"]:

@@ -21,6 +21,7 @@
 
 _Static_assert(S3_ADVANCE_MM > 0 && S3_ADVANCE_MM < 512u, "Axle offset must fit in 9 bits");
 _Static_assert(S5_BYPASS_TURN_DEG == S2_TURN_STEP_DEG, "Detour geometry uses one 45-degree turn step");
+_Static_assert(S2_MANEUVER_TURN_DEG == 90u, "Square bypass requires 90-degree motor turns");
 enum { SCAN_OFF, SCAN_READY, SCAN_ACTIVE };
 static ID guard, work_event;
 static VEHICLE_SNAPSHOT data;
@@ -307,6 +308,16 @@ static S5_MOTION drive_feedback(const S2_STATUS *status, const S2_REPLY *reply,
         drive.failed = !matched || (!reply->accepted && !drive.retry);
         return S5_MOTION_NONE;
     }
+    if (matched && !reply->accepted && reply->reason == S2_REPLY_SETTLING && !busy) {
+        /* The owner rejected this move before energising the motors. Retry only
+         * after its settle window, through the planner's fresh safety checks.
+         * STOP/link/range/phase timeout still take priority over any new issue. */
+        if (now - drive.issued_at < (S2_DIRECTION_SETTLE_US + 999u) / 1000u)
+            return S5_MOTION_QUEUED;
+        drive.command = 0;
+        drive.moving = false;
+        return S5_MOTION_NONE;
+    }
     if (!matched || !reply->accepted) return S5_MOTION_FAILED;
     if (busy) return S5_MOTION_PENDING;
     return s2_core_maneuver_finished(drive.command >> 4, status) ? S5_MOTION_DONE : S5_MOTION_FAILED;
@@ -333,6 +344,8 @@ static void submit_output(const VC_INPUT *in, const VC_OUTPUT *out, const S2_REP
             submitted = motion_maneuver_reverse(out->maneuver.distance_mm, &drive.command);
         else if (action == S5_ADVANCE)
             submitted = motion_maneuver(out->maneuver.distance_mm, false, &drive.command);
+        else if (out->maneuver.turn_90)
+            submitted = motion_maneuver(0, action == S5_PIVOT_RIGHT, &drive.command);
         else
             submitted = motion_maneuver_turn_45(action == S5_PIVOT_RIGHT, &drive.command);
         drive.velocity = false;
@@ -358,7 +371,7 @@ static const char *const avoidance_phase_name[] = {
     [S5_OFF] = "idle",
     [S5_PROFILE_PATH] = "stopped for obstacle scan",
     [S5_TURN_OUT] = "turning off the line",
-    [S5_SHIFT_OUT] = "driving diagonally around obstacle",
+    [S5_SHIFT_OUT] = "leaving the line around obstacle",
     [S5_ALIGN_OUTSIDE] = "aligning for bypass",
     [S5_PASS] = "passing obstacle",
     [S5_TURN_IN] = "turning toward original line",
@@ -397,7 +410,7 @@ static TMO vehicle_service_once(void)
 #endif
     if (model.avoidance.phase == S5_FIND_LINE &&
         (in.avoidance.motion == S5_MOTION_PENDING || in.avoidance.motion == S5_MOTION_DONE)) {
-        unsigned min_cross_mm = s5_reentry_detection_mm(model.avoidance.offset_mm, S3_ADVANCE_MM);
+        unsigned min_cross_mm = s5_reentry_detection_mm(model.avoidance.offset_mm, S3_ADVANCE_MM, model.avoidance.turn_90);
         in.avoidance.near_original_line = s2_core_distance_reached(min_cross_mm, &status);
     }
     bool straight = model.state == VC_FOLLOW_LINE && in.avoidance.line_centered &&
@@ -441,6 +454,7 @@ static TMO vehicle_service_once(void)
     unsigned side = model.avoidance.side;
     unsigned offset = model.avoidance.offset_mm;
     unsigned pass = model.avoidance.next_pass_mm;
+    unsigned turn = model.avoidance.turn_90 && !model.avoidance.widening ? 90u : S5_BYPASS_TURN_DEG;
     /* Serialize dispatch with the request latch, so STOP can cancel an entire
        batch before any later movement is submitted. */
     submit_output(&in, &out, &reply, vc_core_detouring(&model));
@@ -486,9 +500,9 @@ static TMO vehicle_service_once(void)
         tm_printf((UB*)"[S5] avoidance phase=%u side=%u at %u ms: %s\n",
                   (unsigned)phase, side, (unsigned)now, avoidance_phase_name[phase]);
         if (phase == S5_TURN_OUT)
-            tm_printf((UB*)"[S5] bypass side=%s turn=%u deg diagonal=%u mm offset=%u mm pass=%u mm\n",
-                      side == S5_LEFT ? "left" : "right", S5_BYPASS_TURN_DEG,
-                      s5_diagonal_mm(offset), offset, pass);
+            tm_printf((UB*)"[S5] bypass side=%s turn=%u deg departure=%u mm offset=%u mm pass=%u mm\n",
+                      side == S5_LEFT ? "left" : "right", turn,
+                      model.avoidance.turn_90 ? offset : s5_diagonal_mm(offset), offset, pass);
         if (phase == S5_FAILED)
             tm_printf((UB*)"[S5] stopped during %s, detour reason=%u vehicle reason=%u\n",
                       avoidance_phase_name[previous], failure, reason);

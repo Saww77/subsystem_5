@@ -8,7 +8,7 @@ VEHICLE_FAULTS = ((1, 'Motor'), (2, 'Encoder'), (4, 'IMU'),
                   (VEHICLE_FAULT_NO_ECHO, 'Ultrasonic echo'), (16, 'Wi-Fi'))
 TELEMETRY_TOPICS = ('vehicle', 'motion', 'line', 'terrain', 'obstacle', 'controller', 'avoidance')
 AVOIDANCE_PHASES = (
-    'Inactive', 'Checking side clearance', 'Turning outward', 'Driving diagonally off the line',
+    'Inactive', 'Checking side clearance', 'Turning outward', 'Leaving the line',
     'Aligning alongside the obstacle', 'Passing obstacle', 'Turning toward the line',
     'Searching for the line', 'Centering on the line', 'Realigning with the track',
     'Continuing past the obstacle', 'Line reacquired', 'Detour stopped',
@@ -22,7 +22,7 @@ AVOIDANCE_FAILURES = (
     'The sweep could not confirm the obstacle',
     'The sweep could not confirm both edges for a width estimate',
     'Too little room to turn onto the departure diagonal',
-    'Neither 45° departure path had enough clearance',
+    'Neither departure path had enough confirmed turn clearance',
     'The ultrasonic sensor lost a usable echo',
     'An obstacle was too close for the next move',
     'The motor controller could not finish the move',

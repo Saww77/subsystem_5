@@ -57,10 +57,11 @@ unsigned s5_diagonal_mm(unsigned lateral_mm)
     return (lateral_mm * 1415u + 999u) / 1000u;
 }
 
-unsigned s5_reentry_detection_mm(unsigned offset_mm, unsigned sensor_to_axle_mm)
+unsigned s5_reentry_detection_mm(unsigned offset_mm, unsigned sensor_to_axle_mm, bool turn_90)
 {
     if (offset_mm <= S5_SEARCH_MARGIN_MM) return 0;
-    unsigned search_mm = s5_diagonal_mm(offset_mm - S5_SEARCH_MARGIN_MM);
+    unsigned search_mm = offset_mm - S5_SEARCH_MARGIN_MM;
+    if (!turn_90) search_mm = s5_diagonal_mm(search_mm);
     return search_mm > sensor_to_axle_mm ? search_mm - sensor_to_axle_mm : 0;
 }
 
@@ -69,7 +70,7 @@ static bool departure_room(unsigned offset, unsigned front)
     return offset <= MAX_OFFSET_MM && offset + FRONT_MARGIN_MM <= front;
 }
 
-S5_SIDE s5_plan_bypass(const S5_PROFILE *profile, unsigned *offset_mm, unsigned *pass_mm,
+S5_SIDE s5_plan_bypass(const S5_PROFILE *profile, unsigned *offset_mm, unsigned *pass_mm, unsigned *turn_deg,
                        S5_FAILURE *failure)
 {
     *failure = S5_FAIL_TARGET;
@@ -80,22 +81,35 @@ S5_SIDE s5_plan_bypass(const S5_PROFILE *profile, unsigned *offset_mm, unsigned 
      * departure headings using repeat-confirmed range, then recheck forward
      * range at each stopped phase. The return corridor is checked separately. */
     *failure = S5_FAIL_ROOM;
-    if (!departure_room(S5_BYPASS_OFFSET_MM, profile->front_mm)) return S5_NO_SIDE;
+    if (profile->front_mm < S5_TURN_CLEARANCE_MM) return S5_NO_SIDE;
 
     unsigned left_path = profile->left_path_mm, right_path = profile->right_path_mm;
     *failure = !s5_range_available(left_path) || !s5_range_available(right_path) ?
                S5_FAIL_ECHO : S5_FAIL_SIDE;
     unsigned needed = s5_diagonal_mm(S5_BYPASS_OFFSET_MM) + S5_MANEUVER_STOP_MM;
-    bool left = s5_range_available(left_path) && left_path >= needed;
-    bool right = s5_range_available(right_path) && right_path >= needed;
+    bool room = departure_room(S5_BYPASS_OFFSET_MM, profile->front_mm);
+    bool left = room && s5_range_available(left_path) && left_path >= needed;
+    bool right = room && s5_range_available(right_path) && right_path >= needed;
+    *turn_deg = S5_BYPASS_TURN_DEG;
+    if (!left && !right) {
+        /* A diagonal may intersect the obstacle even though a stationary pivot
+         * is possible. Turn square to the track, then require a NEW forward
+         * range on that heading before any lateral translation is dispatched.
+         * The 45-degree scan alone never authorizes a blind 90-degree drive. */
+        *turn_deg = 90u;
+        left = s5_range_available(left_path) && left_path >= S5_TURN_CLEARANCE_MM;
+        right = s5_range_available(right_path) && right_path >= S5_TURN_CLEARANCE_MM;
+    }
     if (!left && !right) return S5_NO_SIDE;
 
     *failure = S5_FAIL_NONE;
     bool use_left = left && (!right || left_path >= right_path);
     *offset_mm = S5_BYPASS_OFFSET_MM;
-    /* The departure diagonal already advances by one lateral offset. */
     unsigned forward_goal = profile->nearest_mm + FOLLOW_AHEAD_MARGIN_MM;
-    *pass_mm = forward_goal > *offset_mm + MIN_PASS_MM ? forward_goal - *offset_mm : MIN_PASS_MM;
+    /* A square departure has no forward projection. */
+    unsigned departure_forward = *turn_deg == 90u ? 0u : *offset_mm;
+    *pass_mm = forward_goal > departure_forward + MIN_PASS_MM ?
+               forward_goal - departure_forward : MIN_PASS_MM;
     return use_left ? S5_LEFT : S5_RIGHT;
 }
 
@@ -123,12 +137,13 @@ S5_AVOID_OUTPUT s5_avoid_step(S5_AVOID *state, const S5_AVOID_INPUT *in)
         }
         S5_PROFILE profile = in->profile;
         if (range_fresh && in->range_mm < profile.front_mm) profile.front_mm = in->range_mm;
-        unsigned offset, pass;
+        unsigned offset, pass, turn;
         S5_FAILURE reason;
-        S5_SIDE side = s5_plan_bypass(&profile, &offset, &pass, &reason);
+        S5_SIDE side = s5_plan_bypass(&profile, &offset, &pass, &turn, &reason);
         if (side != S5_NO_SIDE) {
             if (!range_fresh) return wait;
             state->side = side;
+            state->turn_90 = turn == 90u;
             state->offset_mm = offset;
             state->next_pass_mm = pass;
             return go(state, S5_TURN_OUT, in->now);
@@ -190,7 +205,9 @@ S5_AVOID_OUTPUT s5_avoid_step(S5_AVOID *state, const S5_AVOID_INPUT *in)
     if (in->motion == S5_MOTION_QUEUED || in->motion == S5_MOTION_PENDING) return wait;
     if (in->motion == S5_MOTION_DONE) {
         switch (phase) {
-        case S5_TURN_OUT: return go(state, S5_SHIFT_OUT, in->now);
+        case S5_TURN_OUT:
+            state->widening = false;
+            return go(state, S5_SHIFT_OUT, in->now);
         case S5_SHIFT_OUT: return go(state, S5_ALIGN_OUTSIDE, in->now);
         case S5_ALIGN_OUTSIDE: case S5_ALIGN_RETRY: return go(state, S5_PASS, in->now);
         case S5_PASS:
@@ -208,17 +225,28 @@ S5_AVOID_OUTPUT s5_avoid_step(S5_AVOID *state, const S5_AVOID_INPUT *in)
         !range_fresh || !at_or_after(in->range_at, state->phase_at + MOTION_SETTLE_MS)) return wait;
     if (!forward) {
         if (in->range_mm < S5_TURN_CLEARANCE_MM) return fail(state, S5_FAIL_CLOSE, in->now);
-        if (phase == S5_TURN_OUT && in->range_mm < state->offset_mm + FRONT_MARGIN_MM)
+        if (phase == S5_TURN_OUT && !state->turn_90 &&
+            in->range_mm < state->offset_mm + FRONT_MARGIN_MM)
             return fail(state, S5_FAIL_ROOM, in->now);
         bool outward = phase == S5_TURN_OUT || phase == S5_ALIGN_RETRY || phase == S5_ALIGN_LINE;
         bool left = outward ? state->side == S5_LEFT : state->side == S5_RIGHT;
-        return (S5_AVOID_OUTPUT){.action = left ? S5_PIVOT_LEFT : S5_PIVOT_RIGHT};
+        return (S5_AVOID_OUTPUT){.action = left ? S5_PIVOT_LEFT : S5_PIVOT_RIGHT,
+                                 .turn_90 = state->turn_90 && !state->widening};
     }
-    unsigned distance = phase == S5_SHIFT_OUT ? s5_diagonal_mm(state->offset_mm) :
+    unsigned distance = phase == S5_SHIFT_OUT ? (state->turn_90 ? state->offset_mm : s5_diagonal_mm(state->offset_mm)) :
                         phase == S5_PASS ? state->next_pass_mm :
                         phase == S5_CENTER_LINE ? in->sensor_to_axle_mm :
+                        state->turn_90 ? state->offset_mm + S5_SEARCH_MARGIN_MM :
                         s5_diagonal_mm(state->offset_mm + S5_SEARCH_MARGIN_MM);
     if (in->range_mm < distance + S5_MANEUVER_STOP_MM) {
+        if (phase == S5_SHIFT_OUT && !state->turn_90 && in->range_mm >= S5_TURN_CLEARANCE_MM) {
+            /* The first 45-degree turn is complete, but its live echo does not
+             * permit departure. Add only the remaining 45 degrees, then use
+             * square-route distances and 90-degree alignment turns. */
+            state->turn_90 = state->widening = true;
+            state->next_pass_mm += state->offset_mm;
+            return go(state, S5_TURN_OUT, in->now);
+        }
         if (phase != S5_FIND_LINE || state->passed_mm == S5_MAX_PASS_MM)
             return fail(state, S5_FAIL_CLOSE, in->now);
         unsigned remaining = S5_MAX_PASS_MM - state->passed_mm;

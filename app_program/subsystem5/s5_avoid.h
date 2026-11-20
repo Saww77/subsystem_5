@@ -49,17 +49,19 @@ typedef struct {
     uint32_t phase_at, last_line_at;
     unsigned phase:4, side:2, line_samples:2, reverse_available:1;
     unsigned reverse_long:1, scan_retried:1, failure:4, failed_phase:4;
+    unsigned turn_90:1, widening:1;
     unsigned offset_mm:8, next_pass_mm:9, passed_mm:9;
 } S5_AVOID;
 typedef struct {
     uint16_t action : 3;
     uint16_t distance_mm : 9;
+    uint16_t turn_90 : 1;
 } S5_AVOID_OUTPUT;
 
-S5_SIDE s5_plan_bypass(const S5_PROFILE *profile, unsigned *offset_mm, unsigned *pass_mm,
+S5_SIDE s5_plan_bypass(const S5_PROFILE *profile, unsigned *offset_mm, unsigned *pass_mm, unsigned *turn_deg,
                        S5_FAILURE *failure);
 unsigned s5_diagonal_mm(unsigned lateral_mm);
-unsigned s5_reentry_detection_mm(unsigned offset_mm, unsigned sensor_to_axle_mm);
+unsigned s5_reentry_detection_mm(unsigned offset_mm, unsigned sensor_to_axle_mm, bool turn_90);
 void s5_avoid_begin(S5_AVOID *state, uint32_t now);
 void s5_avoid_abort(S5_AVOID *state, S5_FAILURE reason, uint32_t now);
 S5_AVOID_OUTPUT s5_avoid_step(S5_AVOID *state, const S5_AVOID_INPUT *in);
