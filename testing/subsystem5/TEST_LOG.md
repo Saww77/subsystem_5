@@ -4,7 +4,7 @@
 
 Production driving no longer estimates obstacle width. The earlier flat-face/corner fitter rejected real scans when wide-beam echoes did not agree with its geometric assumptions. That missing estimate previously vetoed the detour. The scanner now measures the actual two 45° departure headings and a fresh forward range, using up to five pings per bearing and two consecutive agreeing results. A timeout is unavailable, not open space.
 
-The planner chooses the clearer usable side and uses a 185 mm lateral target (262 mm diagonal at 45°). It requires 412 mm departure clearance, including the 150 mm stopping margin, and at least 200 mm forward room. These are bounded maneuvers, not a measurement of object width. Wide obstacles, narrow gaps and chassis/servo/encoder calibration still require physical track validation. If the inward return corridor is blocked, the car advances alongside the obstacle in 60 mm steps, up to a total 500 mm pass budget. Two fresh IR crossings near the predicted line trigger axle centring and a 45° alignment turn; fresh centred-line and forward-range evidence are required for handoff.
+The planner chooses the clearer usable side and uses a 185 mm lateral target (262 mm diagonal at 45°). It requires 412 mm departure clearance, including the 150 mm stopping margin, and at least 200 mm forward room. These are bounded maneuvers, not a measurement of object width. Wide obstacles, narrow gaps and chassis/servo/encoder calibration still require physical track validation. If the inward return corridor is blocked, the car advances alongside the obstacle in 60 mm steps, up to a total 500 mm pass budget. Two fresh IR samples confirming a crossing near the predicted line trigger axle centring and a 45° alignment turn; fresh centred-line and forward-range evidence are required for handoff.
 
 The dashboard shows clearance, chosen side and recovery phase. It hides width. The MQTT packet retains its unused width sentinel (2047) for compatibility. Historical width fitter tests and calibration utilities remain for analysis; they are not used by the production or bench scanner.
 
@@ -191,3 +191,19 @@ The two recorded track sweeps reproduced a left sweep-limit stop. At 150°, the 
 The motor-off bench capture showed a 197 mm centre return, mixed near and far echoes at 135°, and five returns of 800–2013 mm at 140°. Replaying those readings kept 135° unresolved and confirmed background at 140°, within 10° of the last confirmed hit. The original replay estimated 192 mm. With the corner agreement check, the same replay leaves the width unconfirmed because the left corner ranges are inconsistent. The independent 45° departure checks reported unavailable on the left and 208 mm on the right.
 
 A second bench capture used a measured 80 mm object and reported 212 mm. The replay confirms both edge brackets but rejects the width. The final near returns on each side are 9 mm farther than the preceding near returns, so they do not establish stable corner distances. The replay preserves the measured background and conservative motion bounds. The fixed-point cosine calculation gives 283 mm for the raw last-hit readings of 212 mm and 207 mm at 85° separation. Applying the beam correction fitted from the 80 mm target gives 87 mm using the same ranges at 23.8° separation. This is a replay of the calibration target. It needs an independent bench check.
+
+## Clearance revision validation — 20 November 2026
+
+Tested firmware and dashboard commit: `8cb693168e55aede8de1caae8d209aa6cb3a1b31`.
+
+| Check | Result |
+|---|---|
+| Production scanner replay (normal and motor-off bench) | Passed with undefined-behavior and bounds sanitizers. Confirms bearing order, repeated echoes, unknown/open distinction, cancellation, and a simulated worst-case scan below 3 seconds. |
+| Planner and controller core | Passed with address and undefined-behavior sanitizers. Both sides complete without width/edge estimates; blocked return retries, range/line failures and stop paths remain covered. |
+| Production controller dispatcher | Passed with undefined-behavior and bounds sanitizers. Both complete detours exercise queued commands, acknowledgements, IR crossing, axle centring, heading restoration and resumed wheel commands. |
+| Dashboard | 28 unit/HTTP tests and 13 browser/MQTT checks passed. Width is absent even when legacy packets contain it or mark it unknown. |
+| RP2040 firmware builds | Default dual-core USB/Wi-Fi, MQTT, stationary bench, and single-core UART self-test profiles generated UF2 files without compiler warnings. SDK 2.2.0, Arm GCC 14.2.1. |
+| Real MQTT connection | Not tested; the compile check used the repository's example settings through an external include directory. No live credentials were added. |
+| Pico W and track | Not run. Confirm servo/motor direction, stopping distance, the 185 mm lateral target, line capture and clearance around the actual vehicle on hardware. |
+
+[Saved host output](logs/2026-11-20_clearance_host.txt) · [Browser/MQTT output](logs/2026-11-20_clearance_browser.txt) · [Build summary](logs/2026-11-20_clearance_builds.txt)

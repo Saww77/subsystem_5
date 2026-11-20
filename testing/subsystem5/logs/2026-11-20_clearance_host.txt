@@ -1,0 +1,39 @@
+Firmware commit: 8cb693168e55aede8de1caae8d209aa6cb3a1b31
+PASS echo capture, scan packing, dropouts, width, sweep limits and bench background replay
+PASS obstacle avoidance, both sides, blocked return retry, recovery, and cancellation
+PASS production clearance scan, width-independent plan, echo loss, timing and cancellation
+PASS production clearance scan, width-independent plan, echo loss, timing and cancellation
+PASS controller events, both clearance detours, stationary rescan, preserved failure and profile, and stopped reset
+test_ack_rejection_and_malformed_packets (test_dashboard.DashboardTests.test_ack_rejection_and_malformed_packets) ... ok
+test_broker_publish_failure_and_invalid_command (test_dashboard.DashboardTests.test_broker_publish_failure_and_invalid_command) ... ok
+test_console_address_and_port_validation (test_dashboard.DashboardTests.test_console_address_and_port_validation) ... ok
+test_disconnect_and_reconnect_require_new_live_heartbeat (test_dashboard.DashboardTests.test_disconnect_and_reconnect_require_new_live_heartbeat) ... ok
+test_every_connection_flag_required (test_dashboard.DashboardTests.test_every_connection_flag_required) ... ok
+test_live_heartbeat_binary_commands_and_staleness (test_dashboard.DashboardTests.test_live_heartbeat_binary_commands_and_staleness) ... ok
+test_offline_blocks_commands (test_dashboard.DashboardTests.test_offline_blocks_commands) ... ok
+test_retained_heartbeat_does_not_enable_start (test_dashboard.DashboardTests.test_retained_heartbeat_does_not_enable_start) ... ok
+test_topic_validation_and_bounded_log (test_dashboard.DashboardTests.test_topic_validation_and_bounded_log) ... ok
+test_http_commands_emit_exact_binary_payloads (test_dashboard.HTTPTests.test_http_commands_emit_exact_binary_payloads) ... ok
+test_offline_rejection_is_visible_to_browser (test_dashboard.HTTPTests.test_offline_rejection_is_visible_to_browser) ... ok
+test_origin_host_token_and_content_type (test_dashboard.HTTPTests.test_origin_host_token_and_content_type) ... ok
+test_real_http_assets_and_snapshot (test_dashboard.HTTPTests.test_real_http_assets_and_snapshot) ... ok
+test_all_wire_payloads (test_telemetry.TelemetryTests.test_all_wire_payloads) ... ok
+test_controller_explains_start_block_without_weakening_guards (test_telemetry.TelemetryTests.test_controller_explains_start_block_without_weakening_guards) ... ok
+test_each_topic_has_independent_freshness (test_telemetry.TelemetryTests.test_each_topic_has_independent_freshness) ... ok
+test_extended_obstacle_sample_and_freshness (test_telemetry.TelemetryTests.test_extended_obstacle_sample_and_freshness) ... ok
+test_history_and_events_are_bounded (test_telemetry.TelemetryTests.test_history_and_events_are_bounded) ... ok
+test_motion_and_faults (test_telemetry.TelemetryTests.test_motion_and_faults) ... ok
+test_obstacle_interlock_distinguishes_live_echo_fault (test_telemetry.TelemetryTests.test_obstacle_interlock_distinguishes_live_echo_fault) ... ok
+test_padding_and_range_rejection (test_telemetry.TelemetryTests.test_padding_and_range_rejection) ... ok
+test_reconnect_needs_new_sample (test_telemetry.TelemetryTests.test_reconnect_needs_new_sample) ... ok
+test_retained_and_bad_payloads_do_not_refresh (test_telemetry.TelemetryTests.test_retained_and_bad_payloads_do_not_refresh) ... ok
+test_reverse_phase_uses_existing_avoidance_byte (test_telemetry.TelemetryTests.test_reverse_phase_uses_existing_avoidance_byte) ... ok
+test_saved_sweep_is_distinct_from_current_range_and_failure (test_telemetry.TelemetryTests.test_saved_sweep_is_distinct_from_current_range_and_failure) ... ok
+test_stopped_detour_without_motor_fault_can_reset (test_telemetry.TelemetryTests.test_stopped_detour_without_motor_fault_can_reset) ... ok
+test_subscribes_every_topic (test_telemetry.TelemetryTests.test_subscribes_every_topic) ... ok
+test_timing_diagnostics_and_stopped_reset (test_telemetry.TelemetryTests.test_timing_diagnostics_and_stopped_reset) ... ok
+
+----------------------------------------------------------------------
+Ran 28 tests in 2.032s
+
+OK

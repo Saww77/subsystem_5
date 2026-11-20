@@ -1,0 +1,16 @@
+8cb693168e55aede8de1caae8d209aa6cb3a1b31
+arm-none-eabi-gcc (15:14.2.rel1-1) 14.2.1 20241119
+Copyright (C) 2024 Free Software Foundation, Inc.
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+2.2.0
+/workspace/subsystem5-validation/build-default.log:Finished building target: mtk3pico_smp1_usb_cdc_wifi_nos4.elf
+/workspace/subsystem5-validation/build-bench.log:Finished building target: mtk3pico_smp1_usb_cdc_s5bench.elf
+/workspace/subsystem5-validation/build-mqtt.log:Finished building target: mtk3pico_smp1_usb_cdc_wifi_lwip_mqtt_nos4.elf
+/workspace/subsystem5-validation/build-selftest.log:Finished building target: mtk3pico_smp0_uart_nos4_test.elf
+   text	   data	    bss	    dec	    hex	filename
+ 303320	     92	  24888	 328300	  5026c	build_make/mtk3pico_smp1_usb_cdc_wifi_nos4.elf
+ 365012	    104	  82684	 447800	  6d538	build_make/mtk3pico_smp1_usb_cdc_wifi_lwip_mqtt_nos4.elf
+ 104319	     40	  22816	 127175	  1f0c7	build_make/mtk3pico_smp1_usb_cdc_s5bench.elf
+  82767	      4	  12532	  95303	  17447	build_make/mtk3pico_smp0_uart_nos4_test.elf
