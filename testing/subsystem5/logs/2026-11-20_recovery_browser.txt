@@ -1,0 +1,13 @@
+PASS CLI: empty address reprompted; valid IP starts local HTTP dashboard; no startup command
+PASS browser: controls, heartbeat, all five telemetry cards and missing-data placeholders render
+PASS browser: retained status does not enable START; connected STOP remains available
+PASS end-to-end: button -> HTTP -> real Mosquitto -> binary 01/00, QoS 0, non-retained -> fixture ACK -> browser
+PASS browser: rapid START then STOP preserves command order
+PASS end-to-end telemetry: all five binary topics decoded over real broker, HTTP and browser
+PASS diagnostics: specific START blocker, IR values, disabled START and preserved STOP; clearing blocker enables retry
+PASS fault recovery: stopped-only RESET sends02, clears fixture fault, leaves mission IDLE and never sends START
+PASS stopped detour: the saved sweep survives forward readings and Reset works with older motor mode
+PASS browser: mobile layout has no horizontal overflow
+PASS browser: independent telemetry expiry and motor/mission fault rendering
+PASS browser: stale heartbeat disables START and keeps STOP available
+PASS browser: broker loss disables controls; no auto-command; no JavaScript errors

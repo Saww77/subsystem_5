@@ -1,0 +1,2 @@
+test_avoidance: testing/subsystem5/test_avoidance.c:348: test_close_stop_has_a_turning_route: Assertion `s5_plan_bypass(&scan, &offset, &pass, &reason) == S5_RIGHT' failed.
+test_controller_events: testing/subsystem5/test_controller_events.c:128: finish_maneuver: Assertion `vc_core_detouring(&model) && command_count == submitted' failed.

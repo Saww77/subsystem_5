@@ -215,3 +215,21 @@ Tested firmware and dashboard commit: `8cb693168e55aede8de1caae8d209aa6cb3a1b31`
 | Pico W and track | Not run. Confirm servo/motor direction, stopping distance, the 185 mm lateral target, line capture and clearance around the actual vehicle on hardware. |
 
 [Saved host output](logs/2026-11-20_clearance_host.txt) · [Browser/MQTT output](logs/2026-11-20_clearance_browser.txt) · [Build summary](logs/2026-11-20_clearance_builds.txt)
+
+## Adaptive departure recovery — 20 November 2026
+
+Tested code: `5a31ab9055b32ed301de4663a1fc347ea14bee25`.
+
+Two regression replays failed before the change: a valid 190 mm stopped front range could not plan a departure, and a temporary motor `SETTLING` reply immediately faulted the detour. The corrected planner selects a stationary 90° pivot when the diagonal does not fit, and the dispatcher retries rejected-but-unstarted moves after the settle window. A new confirmed forward measurement is required before any translation on the new heading. START with a known obstacle now begins a stationary scan; a failed detour still requires Reset.
+
+| Check | Result |
+|---|---|
+| Planner/controller core, with sanitizers | Passed. Both directions complete at 45° and 90°; a blocked live 45° departure widens by the remaining 45°. Unconfirmed/blocked post-turn range never authorizes translation. Reset/start beside a known obstacle and existing fault/cancellation paths pass. |
+| Production dispatcher, with sanitizers | Passed. Both directions at both angles exercise motor command words, repeated settling rejection/retry, stopping a pending retry, turn-specific line-crossing thresholds, line handoff and resumed line following. |
+| Production scanner, normal and bench modes | Passed. Bearing order, echo confirmation, cancellation and unavailable/open distinction remain covered. |
+| Legacy scan/echo algorithms | Passed with address and undefined-behavior sanitizers. |
+| Dashboard | 30 unit/HTTP tests and 13 browser/MQTT checkpoints passed. The command panel displays detour progress or the recorded cause/phase; rejected START feedback no longer gives the generic remove-obstacles hint for a failed detour. |
+| Firmware | Default USB/Wi-Fi, MQTT, motor-off bench and single-core UART self-test builds generated UF2 files without compiler warnings. MQTT build uses the example settings from an external include directory, not live credentials. |
+| Physical car | Not tested. User tests with a power bank, without USB logs. Confirm servo bearings, 45°/90° turns, stopping clearance and line recovery on the car; the main dashboard now supplies failure context for that test. |
+
+[Failing regressions before the fix](logs/2026-11-20_recovery_before.txt) · [Host output](logs/2026-11-20_recovery_host.txt) · [Browser output](logs/2026-11-20_recovery_browser.txt) · [Build summary](logs/2026-11-20_recovery_builds.txt)
