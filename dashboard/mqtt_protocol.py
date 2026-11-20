@@ -8,7 +8,7 @@ VEHICLE_FAULTS = ((1, 'Motor'), (2, 'Encoder'), (4, 'IMU'),
                   (VEHICLE_FAULT_NO_ECHO, 'Ultrasonic echo'), (16, 'Wi-Fi'))
 TELEMETRY_TOPICS = ('vehicle', 'motion', 'line', 'terrain', 'obstacle', 'controller', 'avoidance')
 AVOIDANCE_PHASES = (
-    'Inactive', 'Profiling obstacle', 'Turning outward', 'Driving diagonally off the line',
+    'Inactive', 'Checking side clearance', 'Turning outward', 'Driving diagonally off the line',
     'Aligning alongside the obstacle', 'Passing obstacle', 'Turning toward the line',
     'Searching for the line', 'Centering on the line', 'Realigning with the track',
     'Continuing past the obstacle', 'Line reacquired', 'Detour stopped',

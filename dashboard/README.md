@@ -24,11 +24,11 @@ The Pico must run the MQTT firmware (`make NET=lwip MQTT=1`), not the normal non
 - **Wheels/motion:** measured left/right RPM; propulsion PWM; actual motor mode; global speed level; recent 120-sample RPM trend; raw motor-fault labels; bounded-move progress counts.
 - **Line/barcode:** left/right black-detection flags, centre flag, reported barcode letter.
 - **Terrain:** reported height in millimetres and terrain phase.
-- **Obstacle:** nearest distance, estimated width and side clearance, angle of the closest return, and the live detour stage and chosen side.
+- **Obstacle:** nearest distance and side clearance, angle of the closest return, and the live detour stage and chosen side.
 - **Connection:** live heartbeat age, Wi-Fi/broker/subscription flags and bridge drop flags.
 - **Commands/events:** exact binary START/STOP, Pico acknowledgment and a bounded connection/mission/fault event list.
 
-All values come from received MQTT payloads. The current two-sensor Pico configuration leaves the centre flag unset; an unset flag does not prove a centre sensor is installed or reading white. Barcode decoding is currently disabled. Terrain and obstacle cards show **No data** until their producers submit a valid measurement. An obstacle profile can contain a closest return before the finer scan resolves its width or clearance. An ultrasonic echo fault is shown under vehicle faults.
+All values come from received MQTT payloads. The current two-sensor Pico configuration leaves the centre flag unset; an unset flag does not prove a centre sensor is installed or reading white. Barcode decoding is currently disabled. Terrain and obstacle cards show **No data** until their producers submit a valid measurement. The car checks the two 45° departure paths while stopped; exact obstacle width is not required or displayed. An ultrasonic echo fault is shown under vehicle faults.
 
 The matching diagnostics firmware additionally publishes normalized IR darkness, target RPM, controller stop reason and telemetry-drop count on `/controller`. Older firmware does not publish these fields. Raw ADC values, tilt, turn rate and total distance remain unavailable. Wheel progress is counts for bounded moves, not cumulative distance. The global speed level is a legacy selection, not the per-wheel fine-RPM target. A displayed mission state reports controller intent; actual wheel RPM reports measured motion.
 
@@ -38,7 +38,7 @@ Each telemetry channel independently expires after 2 seconds without a valid liv
 
 Heartbeat expires after 15 seconds. START is available only when the broker/subscriptions and a fresh heartbeat confirm all connection flags. The Pico may still reject START due to startup delay, stale line data, a junction stop or fault. STOP stays available while the local server has a broker connection. No command is retained; the server does not replay commands after reconnect.
 
-The Pico ACK confirms acceptance for processing, not physical movement. Inspect mission state, wheel RPM and faults after commanding START. The car can bypass a profiled obstacle during an active run and resume after reacquiring the line. The first-junction halt is still enabled.
+The Pico ACK confirms acceptance for processing, not physical movement. Inspect mission state, wheel RPM and faults after commanding START. The car can bypass an obstacle with confirmed departure clearance during an active run and resume after reacquiring the line. The first-junction halt is still enabled.
 
 MQTT QoS 0 does not guarantee delivery. The browser reports uncertainty if its HTTP request times out. Faults need investigation before a new START. This is a local dashboard with Host/Origin and command-token checks, bound to loopback; it is not designed for public Internet exposure. Broker TLS/auth configuration is not added by this dashboard or the current Pico MQTT client.
 
@@ -83,19 +83,17 @@ Replace both the dashboard and Pico firmware with matching current versions. A h
 
 The **Obstacle scan** card shows measured forward distance even when a target is outside the stopping threshold. A measured forward range beyond 27 cm clears the obstacle interlock. Two complete out-of-range pulses within the 30 ms deadline can also clear it. Two matching RCWL-9610A no-target pulses around 47.1 ms can also clear it. Missing and other late echoes keep the interlock blocked. Hold a flat target 40–60 cm straight ahead while the car is stopped to verify the sensor. If the fault stays on, check sensor power, common ground, GP16 trigger, and the 3.3 V ECHO signal at GP17. Use a divider for a 5 V ECHO output. If the panel shows **Stale**, check the Pico’s Wi-Fi and broker connection first.
 
-Connect the scan servo to the Robo Pico servo header marked **GP12**. At power-up the firmware holds the servo at its centre pulse and waits 350 ms before ranging. Check that the sensor faces straight ahead at that position. If it points to one side, mark the powered centre position, switch off, and re-seat the servo horn or adjust the sensor bracket. Small corrections can be made with `S5_SERVO_CENTRE_US` in `app_program/subsystem5/subsystem5.h`. To test detection followed by a single width sweep over USB, use the [stationary bench build](../testing/subsystem5/TEST_LOG.md#stationary-hardware-check).
+Connect the scan servo to the Robo Pico servo header marked **GP12**. At power-up the firmware holds the servo at its centre pulse and waits 350 ms before ranging. Check that the sensor faces straight ahead at that position. If it points to one side, mark the powered centre position, switch off, and re-seat the servo horn or adjust the sensor bracket. Small corrections can be made with `S5_SERVO_CENTRE_US` in `config/s5_servo_calibration.h` (see `config/s5_servo_calibration.example.h`). To test detection followed by a single clearance scan over USB, use the [stationary bench build](../testing/subsystem5/TEST_LOG.md#stationary-hardware-check).
 
-## Trace obstacle width from the Pico to the dashboard
+## Trace obstacle avoidance
 
-Open the firmware's USB serial console at 115200 baud. The controller slows at 350 mm and stops to scan at 220 mm. The servo confirms the forward target, brackets both edges for the width estimate, samples the two 45° departure headings, then returns to centre. The dashboard keeps the latest sweep until Reset or the next detour. **Forward now** shows the current straight-ahead reading separately.
+Open USB serial at 115200 baud. The car slows at 350 mm and stops at 220 mm. The servo checks 135° (45° left), 45° (45° right), then returns to 90° for a confirmed forward reading. Two consecutive agreeing measurements confirm a bearing; two real no-target pulses confirm open space. Echo timeouts remain unavailable.
 
-- `confirming forward target before GP12 coarse sweep` means the scan task started the sweep.
-- `width=unavailable` gives the specific face or edge evidence that failed. The integrated USB serial log prints the sampled `[S5] width echo` bearings for that sweep. An inconclusive result gets one stationary retry. The dashboard reports the reason and phase if the detour stops.
-- `[S5] profile ... width=...` confirms width was calculated on the Pico. `[S1 MQTT] /obstacle queued ... width=...` confirms the frame reached the local MQTT queue. Use the dashboard's topic root and subscribe to the broker to verify delivery. The payload is binary.
+The log reports `[S5] clearance forward=... left=... right=...`. Values 4094 and 4095 mean open and unavailable respectively. The car picks the side with more usable clearance. Each departure needs at least 412 mm (262 mm diagonal plus 150 mm stopping margin) and 200 mm forward room before turning. Width fitting cannot block this decision. The unused width field stays 2047 for wire compatibility and is hidden in the dashboard.
 
-```sh
-mosquitto_sub -h BROKER_IP -t 'TOPIC_ROOT/obstacle' -F '%t %x'
-```
+Watch the phase and chosen side: turn outward 45°, drive the bounded diagonal, align parallel, pass the obstacle, turn inward 45°, search for the original line, centre the axle, realign, and confirm fresh line/forward data before resuming. A blocked return corridor makes the car advance farther alongside the obstacle, within a 500 mm pass budget. Missing echoes, both departure paths blocked, motion failure, and failure to confirm the line stop the car.
+
+The dashboard retains the latest scan until Reset or the next detour. **Forward now** shows the current straight-ahead reading separately. Restart the Python process after updating so it serves the revised dashboard.
 
 ## Reset without power cycling
 

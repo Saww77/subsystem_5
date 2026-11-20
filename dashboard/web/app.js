@@ -220,7 +220,7 @@ function drawTelemetry(data) {
   text("centre-ir", line ? line.centre_black ? "Black" : "Not set" : null);
   text("terrain-height", terrain?.height_mm);
   text("terrain-phase", terrain?.phase);
-  for (const [id, key] of [["nearest", "nearest_mm"], ["width", "width_mm"], ["left", "left_mm"], ["right", "right_mm"]]) {
+  for (const [id, key] of [["nearest", "nearest_mm"], ["left", "left_mm"], ["right", "right_mm"]]) {
     const display = obstacle?.[id + "_open"] ? "Open" : obstacle?.[key] == null ? null : obstacle[key] + " mm";
     text("obstacle-" + id, display ?? (obstacle?.saved_profile && id !== "nearest" ? "Unconfirmed" : null));
   }
