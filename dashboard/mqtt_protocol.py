@@ -45,7 +45,8 @@ def decode_telemetry(kind, payload):
     sizes = dict(vehicle=(1,), motion=(9,), line=(1,), terrain=(2,),
                  obstacle=(6, 7), controller=(25, 31), avoidance=(1, 4))
     if len(payload) not in sizes.get(kind, ()):
-        raise ValueError('Incorrect binary telemetry length')
+        raise ValueError('Incorrect binary telemetry length: received ' + str(len(payload)) +
+                         ' bytes; expected ' + ' or '.join(map(str, sizes.get(kind, ()))) + ' bytes')
     word = int.from_bytes(payload, 'little')
     def bits(offset, width): return (word >> offset) & ((1 << width) - 1)
     if kind == 'controller':

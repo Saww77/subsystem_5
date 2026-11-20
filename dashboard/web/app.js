@@ -25,6 +25,7 @@ function draw(data) {
   state = data;
   el("broker-address").textContent = `${data.broker}:${data.broker_port}`;
   el("topic-root").textContent = data.root;
+  el("dashboard-release").textContent = data.dashboard_release || "Version unavailable";
   el("live-monitor").classList.toggle("online", data.broker_connected);
   el("start").disabled = !data.start_allowed || commandBusy || resetBusy;
   el("stop").disabled = !data.stop_allowed;
@@ -43,7 +44,7 @@ function draw(data) {
   } else if (data.telemetry?.controller?.fresh && data.telemetry.controller.data.start_block) {
     const controller = data.telemetry.controller.data;
     title = controller.detour_active ? "Obstacle avoidance in progress" : "START blocked by controller";
-    description = controller.detour_active ? controller.start_hint : controller.detour_failure || controller.start_block_label;
+    description = controller.detour_active ? controller.start_hint : controller.detour_failure || controller.motor_fault_hint || controller.start_block_label;
   } else if (data.start_allowed) {
     title = "Pico ready for commands";
     description = "The live heartbeat confirms Wi-Fi, MQTT and the command subscription.";
@@ -56,8 +57,9 @@ function draw(data) {
   }
   el("pico-state").textContent = title;
   el("pico-description").textContent = description;
-  el("notice").hidden = !data.error;
-  el("notice").textContent = data.error;
+  const notices = [data.error, ...Object.values(data.protocol_errors || {})].filter(Boolean);
+  el("notice").hidden = !notices.length;
+  el("notice").textContent = notices.join(" ");
   el("heartbeat-age").textContent = data.pico.age === null ? "—" : `${Math.floor(data.pico.age)}s ago`;
   el("heartbeat-age").closest(".heartbeat-card").classList.toggle("live", data.pico.fresh);
   for (const id of ["wifi", "mqtt", "subscribed"]) setFlag(id, data.pico[id], data.pico.fresh && data.broker_connected);

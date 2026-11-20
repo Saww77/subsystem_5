@@ -102,3 +102,23 @@ With matching firmware, **Reset** is available when fresh controller data report
 RESET sends `02`. The Pico replies with `04` for acceptance or `06` for rejection. An accepted reset reports `0C` on completion or `0E` on failure. Controller diagnostics v2 carry the pending flag, latched timing gap and limit in 31 bytes. Version 1 diagnostics can still be displayed.
 
 For cold-start or reconnect timing, compare the USB serial `wifi: link up` and `mqtt: ready for commands` messages. The Pico initiates MQTT as soon as the hotspot gives it an IP and publishes readiness when the broker acknowledges its command subscription.
+
+## Wheel stall and packet-format mismatch
+
+The current interface shows **Clearance v3** in the top strip and has no width field. A page that still shows WIDTH and lacks the chosen-side/recovery fields is an older dashboard. Restart `app.py` from the `dashboard` directory of the same checkout used to rebuild the Pico firmware; leave the user's ignored Wi-Fi and calibration headers in place. For the current recovery changes use branch `fix/subsystem5-departure-recovery` until it is merged into main.
+
+An invalid-length packet is now shown in the main notice with its received and expected byte counts. The current C obstacle publisher sends exactly seven bytes; the decoder accepts that format plus the legacy six-byte format. Do not reinterpret other lengths as valid measurements. Check the topic root, any other publishers using that root, and that the firmware and Python server were updated together. Repeated identical errors remain in the notice without filling the event history; a valid packet clears that channel's error.
+
+**Wheel stalled** is a separate motor-controller fault: a commanded wheel has not supplied encoder pulses while drive power is being requested. A malformed obstacle packet does not itself set that motor fault. With the chassis safely raised, check whether both wheels physically turn. If neither turns, check the motor supply, battery/power-bank route, board power switch and motor connections. If a wheel turns but the fault remains, check that wheel's encoder power, common ground and signal (GP2 left, GP3 right on this firmware). The filtered RPM or zero bounded-move progress after a stop does not identify which connection failed. Resolve the cause before Reset and START; the stall stop remains enabled.
+
+Host integration checks, from the repository root (a host C compiler is required):
+
+```sh
+python3 testing/protocol/test_obstacle_publisher.py -v
+cc -std=gnu11 -Wall -Wextra -Werror -fsanitize=undefined,bounds \
+  -DPROHIBIT_DEF_SIZE_T -D_PICO_RP2040_ -DCNF_SMP=1 -Iinclude -Iconfig \
+  testing/subsystem2/test_stall.c -o /tmp/test_stall
+/tmp/test_stall
+```
+
+The protocol test compiles and executes the actual C publisher/packer, then decodes its bytes with the dashboard. The motor test covers valid encoder feedback, missing feedback on each side, a latched stop and explicit clearing. These tests do not establish the car's supply voltage, torque, wiring or encoder signals.

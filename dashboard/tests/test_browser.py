@@ -168,6 +168,13 @@ def main():
             expect(page.locator("#avoidance-phase")).to_have_text("Line reacquired")
             assert page.locator("#left-rpm-path").get_attribute("d")
             print("PASS end-to-end telemetry: all five binary topics decoded over real broker, HTTP and browser")
+            expect(page.locator("#dashboard-release")).to_have_text("Clearance v3")
+            fixture.publish(root + "/obstacle", b"\x00" * 9).wait_for_publish(timeout=5)
+            expect(page.locator("#notice")).to_contain_text("received 9 bytes; expected 6 or 7 bytes")
+            valid_scan = (220 | (2047 << 12) | (4094 << 23) | (4095 << 35) | (60 << 47) | (1 << 54))
+            fixture.publish(root + "/obstacle", valid_scan.to_bytes(7, "little")).wait_for_publish(timeout=5)
+            expect(page.locator("#notice")).to_be_hidden()
+            fixture.publish(root + "/status", b"\x07", qos=0, retain=False).wait_for_publish(timeout=5)
             # Specific START rejection is surfaced without bypassing Pico guards.
             diag = bytearray(25);diag[0]=1;diag[3]=7;diag[4]=1|2|4|64;diag[24]=7
             diag[6:8]=(900).to_bytes(2,"little");diag[10:12]=(850).to_bytes(2,"little")
@@ -207,6 +214,7 @@ def main():
             expect(page.locator("#start")).to_be_enabled()
             assert commands[-1]==(b"\x02",0,False) and len(commands)==5
             print("PASS fault recovery: stopped-only RESET sends02, clears fixture fault, leaves mission IDLE and never sends START")
+            fixture.publish(root + "/status", b"\x07", qos=0, retain=False).wait_for_publish(timeout=5)
             scan = (208 | (2047 << 12) | (4094 << 23) | (4095 << 35) |
                     (60 << 47) | (1 << 54)).to_bytes(7, "little")
             fixture.publish(root + "/obstacle", scan).wait_for_publish(timeout=5)

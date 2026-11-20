@@ -214,6 +214,31 @@ class TelemetryTests(unittest.TestCase):
         self.assertEqual(data['last_reject_label'], 'Obstacle interlock active')
         self.assertNotIn('detour_failure', data)
 
+    def test_packet_mismatch_is_visible_and_clears_on_valid_data(self):
+        self.send('obstacle', b'\x00' * 9)
+        state = self.d.snapshot()
+        self.assertEqual(state['dashboard_release'], 'Clearance v3')
+        self.assertIn('received 9 bytes; expected 6 or 7 bytes', state['protocol_errors']['obstacle'])
+        self.assertIn('same revision and topic root', state['protocol_errors']['obstacle'])
+        self.assertFalse(state['telemetry']['obstacle']['fresh'])
+        errors = len([item for item in state['events'] if item['kind'] == 'error'])
+        self.send('obstacle', b'\x00' * 9)
+        self.assertEqual(len([item for item in self.d.snapshot()['events'] if item['kind'] == 'error']), errors)
+        packet = (220 | (2047 << 12) | (4094 << 23) | (4095 << 35) | (60 << 47) | (1 << 54))
+        self.send('obstacle', packet.to_bytes(7, 'little'))
+        self.assertNotIn('obstacle', self.d.snapshot()['protocol_errors'])
+        self.assertTrue(self.d.snapshot()['telemetry']['obstacle']['fresh'])
+
+    def test_stall_explains_power_and_encoder_checks(self):
+        packet = bytearray(31)
+        packet[:6] = bytes((2, 5, 4, 3, 1 | 2 | 64, 4))
+        self.send('controller', packet)
+        data = self.d.snapshot()['telemetry']['controller']['data']
+        self.assertIn('no encoder pulses', data['motor_fault_hint'])
+        self.assertIn('GP2/GP3', data['start_hint'])
+        self.assertIn('motor supply', data['start_hint'])
+        self.assertFalse(self.d.snapshot()['start_allowed'])
+
     def test_subscribes_every_topic(self):
         result=[]
         client=SimpleNamespace(subscribe=lambda topics:(result.extend(topics) or (0,1)))

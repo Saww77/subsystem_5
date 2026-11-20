@@ -26,6 +26,7 @@ from mqtt_protocol import (AVOIDANCE_FAILED, START_BLOCK_OBSTACLE, TELEMETRY_TOP
 HEARTBEAT_TIMEOUT = 15.0
 TELEMETRY_TIMEOUT = 2.0
 STATIC_DIR = Path(__file__).resolve().parent / "web"
+DASHBOARD_RELEASE = "Clearance v3"
 
 
 class CommandUnavailable(Exception):
@@ -48,6 +49,7 @@ class Dashboard:
         self.last_ack = None
         self.last_command = None
         self.error = ""
+        self.protocol_errors = {}
         self.events = deque(maxlen=40)
         self.sequence = 0
         self.telemetry = {name: None for name in TELEMETRY_TOPICS}
@@ -165,8 +167,14 @@ class Dashboard:
                 try:
                     decoded = decode_telemetry(kind, payload)
                 except ValueError as exc:
-                    self.event("error", "Ignored malformed " + kind + " telemetry: " + str(exc))
+                    message = "Ignored malformed " + kind + " telemetry: " + str(exc)
+                    if "Incorrect binary telemetry length" in str(exc):
+                        message += ". Check that the Pico firmware and dashboard come from the same revision and topic root."
+                    if self.protocol_errors.get(kind) != message:
+                        self.event("error", message)
+                    self.protocol_errors[kind] = message
                     return
+                self.protocol_errors.pop(kind, None)
                 previous = self.telemetry[kind]
                 now = self.clock()
                 self.telemetry[kind] = dict(data=decoded, received_at=now,
@@ -241,6 +249,12 @@ class Dashboard:
                     current["data"], detour_active=True,
                     start_block_label="Automatic obstacle avoidance", start_hint=stage + ". STOP remains available.",
                 )
+            if current["fresh"] and current["data"]["motor_faults"] & 4:
+                hint = ("Wheel stalled: a commanded wheel reported no encoder pulses. "
+                        "With wheels raised, check motor supply and whether both wheels turn. "
+                        "If they turn, check the GP2/GP3 encoder signals and common ground. "
+                        "Fix the cause before Reset and START.")
+                current["data"] = dict(current["data"], motor_fault_hint=hint, start_hint=hint)
             reset_block = "Waiting for live controller diagnostics."
             if current["fresh"]:
                 diagnostics = current["data"]
@@ -258,6 +272,7 @@ class Dashboard:
                 "broker": self.broker, "broker_port": self.broker_port, "root": self.root,
                 "broker_connected": self.broker_connected, "monitor_ready": self.monitor_ready,
                 "error": self.error, "start_allowed": bool(ready),
+                "dashboard_release": DASHBOARD_RELEASE, "protocol_errors": self.protocol_errors.copy(),
                 "stop_allowed": self.broker_connected,
                 "reset_allowed": reset_block is None,
                 "reset_block": reset_block,
